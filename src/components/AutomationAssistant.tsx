@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Bot, Send, X } from 'lucide-react'
+import { api } from '../api/client'
 import type { BugReport, TabId } from '../types'
 
 interface AutomationAssistantProps {
   onNavigate: (tab: TabId) => void
-  onSubmitQuickBug: (bug: BugReport) => void
-  bugsCount: number
+  onBugCreated: (bug: BugReport) => void
 }
 
 interface ChatMessage {
@@ -18,11 +18,11 @@ interface ChatMessage {
 
 export function AutomationAssistant({
   onNavigate,
-  onSubmitQuickBug,
-  bugsCount,
+  onBugCreated,
 }: AutomationAssistantProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
   const [awaitingBugText, setAwaitingBugText] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -32,88 +32,49 @@ export function AutomationAssistant({
     },
   ])
 
-  const handleUserText = (raw: string) => {
+  const handleUserText = async (raw: string) => {
     const text = raw.trim()
-    const q = text.toLowerCase()
+    if (!text || sending) return
 
-    if (awaitingBugText) {
-      const bugId = `BUG-0${bugsCount + 1}`
-      const now = new Date()
-      const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`
+    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, sender: 'user', text }])
+    setSending(true)
 
-      onSubmitQuickBug({
-        id: bugId,
-        title: text.slice(0, 60),
-        module: 'Бот-помічник',
-        severity: 'Середня',
-        status: 'Новий',
-        description: text,
-        reporter: 'Через чат-бота',
-        createdAt: dateStr,
-      })
-
-      setAwaitingBugText(false)
+    try {
+      const res = await api.sendBotMessage(text, awaitingBugText)
+      setAwaitingBugText(res.awaitingBugText)
+      if (res.createdBug) {
+        onBugCreated(res.createdBug)
+      }
       setMessages((prev) => [
         ...prev,
-        { id: `u-${Date.now()}`, sender: 'user', text },
         {
-          id: `b-${Date.now() + 1}`,
+          id: `b-${Date.now()}`,
           sender: 'bot',
-          text: `Дякую! Помилку в ПЗ зареєстровано під номером ${bugId}.`,
-          actionTab: 'bugs',
-          actionLabel: 'Переглянути у списку помилок',
+          text: res.reply,
+          actionTab: res.actionTab,
+          actionLabel: res.actionLabel,
         },
       ])
-      return
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `b-${Date.now()}`,
+          sender: 'bot',
+          text: 'Не вдалося з’єднатися з сервером бота. Перевірте, що бекенд запущено.',
+        },
+      ])
+    } finally {
+      setSending(false)
     }
-
-    let reply: Omit<ChatMessage, 'id' | 'sender'>
-
-    if (q.includes('кав') || q.includes('рецепт')) {
-      reply = {
-        text: 'Рецепти кави не надаються. Працюю лише з 3D-друком (пластик, проблеми, замовлення) та помилками в ПЗ.',
-      }
-    } else if (q.includes('пластик') || q.includes('матеріал')) {
-      reply = {
-        text: 'Для прототипів підійде PLA, для міцних деталей — PETG або ABS, для вулиці — ASA, для гнучких — TPU.',
-        actionTab: 'materials',
-        actionLabel: 'Відкрити вибір пластику',
-      }
-    } else if (q.includes('проблем') || q.includes('відкле') || q.includes('нитки')) {
-      reply = {
-        text: 'Маю базові інструкції щодо відклеювання, ниток, недоекструзії та зсуву шарів.',
-        actionTab: 'troubleshooting',
-        actionLabel: 'Відкрити вирішення проблем',
-      }
-    } else if (q.includes('замов') || q.includes('деталь')) {
-      reply = {
-        text: 'Оформити замовлення та дізнатись орієнтовну вартість можна у розділі «Замовлення деталей».',
-        actionTab: 'orders',
-        actionLabel: 'Перейти до замовлень',
-      }
-    } else if (q.includes('баг') || q.includes('помил') || q.includes('пз')) {
-      setAwaitingBugText(true)
-      reply = {
-        text: 'Напишіть одним повідомленням, яка саме помилка виникла в ПЗ — я одразу збережу її.',
-      }
-    } else {
-      reply = {
-        text: 'Оберіть одну з дій нижче або напишіть, що потрібно: пластик, проблема друку, замовлення чи помилка в ПЗ.',
-      }
-    }
-
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, sender: 'user', text },
-      { id: `b-${Date.now() + 1}`, sender: 'bot', ...reply },
-    ])
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim()) return
-    handleUserText(input)
+    const text = input
     setInput('')
+    void handleUserText(text)
   }
 
   return (
@@ -171,7 +132,7 @@ export function AutomationAssistant({
               <button
                 key={label}
                 type="button"
-                onClick={() => handleUserText(label)}
+                onClick={() => void handleUserText(label)}
                 className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-orange-50 hover:text-orange-700 cursor-pointer"
               >
                 {label}
@@ -189,7 +150,8 @@ export function AutomationAssistant({
             />
             <button
               type="submit"
-              className="rounded-lg bg-orange-600 p-2 text-white hover:bg-orange-500 cursor-pointer"
+              disabled={sending}
+              className="rounded-lg bg-orange-600 p-2 text-white hover:bg-orange-500 disabled:opacity-60 cursor-pointer"
               aria-label="Надіслати"
             >
               <Send className="h-3.5 w-3.5" />

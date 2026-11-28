@@ -2,12 +2,18 @@ import { ArrowRight, Bug, Layers, PackagePlus, Wrench } from 'lucide-react'
 import type { BugReport, PrintOrder, TabId } from '../types'
 
 interface DashboardViewProps {
+  materialsCount: number
   orders: PrintOrder[]
   bugs: BugReport[]
   onNavigate: (tab: TabId) => void
 }
 
-export function DashboardView({ orders, bugs, onNavigate }: DashboardViewProps) {
+export function DashboardView({
+  materialsCount,
+  orders,
+  bugs,
+  onNavigate,
+}: DashboardViewProps) {
   const openOrders = orders.filter((o) => o.status !== 'Готово').length
   const openBugs = bugs.filter((b) => b.status !== 'Вирішено').length
 
@@ -79,7 +85,7 @@ export function DashboardView({ orders, bugs, onNavigate }: DashboardViewProps) 
       <section className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">Доступно матеріалів</p>
-          <p className="mt-1 text-2xl font-bold font-mono text-slate-900">5</p>
+          <p className="mt-1 text-2xl font-bold font-mono text-slate-900">{materialsCount}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">Активні замовлення</p>

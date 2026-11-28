@@ -1,20 +1,24 @@
 import { useMemo, useState } from 'react'
 import { Search, Wrench } from 'lucide-react'
-import { TROUBLESHOOT_CASES } from '../data/printData'
+import type { TroubleshootCase } from '../types'
 
-export function TroubleshootingView() {
+interface TroubleshootingViewProps {
+  cases: TroubleshootCase[]
+}
+
+export function TroubleshootingView({ cases }: TroubleshootingViewProps) {
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return TROUBLESHOOT_CASES
-    return TROUBLESHOOT_CASES.filter(
+    if (!q) return cases
+    return cases.filter(
       (item) =>
         item.title.toLowerCase().includes(q) ||
         item.symptom.toLowerCase().includes(q) ||
         item.cause.toLowerCase().includes(q),
     )
-  }, [query])
+  }, [cases, query])
 
   return (
     <div className="space-y-5">

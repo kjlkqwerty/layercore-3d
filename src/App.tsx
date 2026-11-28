@@ -1,13 +1,28 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Box, Bug, Home, Layers, Menu, PackagePlus, Wrench, X } from 'lucide-react'
+import { api } from './api/client'
 import { AutomationAssistant } from './components/AutomationAssistant'
 import { BugTrackerView } from './components/BugTrackerView'
 import { DashboardView } from './components/DashboardView'
 import { MaterialSelectorView } from './components/MaterialSelectorView'
 import { OrdersView } from './components/OrdersView'
 import { TroubleshootingView } from './components/TroubleshootingView'
-import { INITIAL_BUGS, INITIAL_ORDERS } from './data/printData'
-import type { BugReport, BugStatus, OrderStatus, PrintOrder, TabId } from './types'
+import {
+  INITIAL_BUGS,
+  INITIAL_ORDERS,
+  MATERIALS,
+  TROUBLESHOOT_CASES,
+} from './data/printData'
+import type {
+  BugReport,
+  BugSeverity,
+  BugStatus,
+  MaterialSpec,
+  OrderStatus,
+  PrintOrder,
+  TabId,
+  TroubleshootCase,
+} from './types'
 
 const NAV_ITEMS: { id: TabId; label: string; icon: typeof Home }[] = [
   { id: 'home', label: 'Головна', icon: Home },
@@ -20,21 +35,78 @@ const NAV_ITEMS: { id: TabId; label: string; icon: typeof Home }[] = [
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const [materials, setMaterials] = useState<MaterialSpec[]>(MATERIALS)
+  const [troubleshootCases, setTroubleshootCases] = useState<TroubleshootCase[]>(TROUBLESHOOT_CASES)
   const [orders, setOrders] = useState<PrintOrder[]>(INITIAL_ORDERS)
   const [bugs, setBugs] = useState<BugReport[]>(INITIAL_BUGS)
   const [selectedMaterial, setSelectedMaterial] = useState('petg')
+  const [apiOnline, setApiOnline] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      api.getMaterials(),
+      api.getTroubleshooting(),
+      api.getOrders(),
+      api.getBugs(),
+    ])
+      .then(([mats, cases, ord, bg]) => {
+        if (!active) return
+        setMaterials(mats)
+        setTroubleshootCases(cases)
+        setOrders(ord)
+        setBugs(bg)
+        setApiOnline(true)
+      })
+      .catch(() => {
+        if (!active) return
+        setApiOnline(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const handleSelectMaterial = (materialId: string) => {
     setSelectedMaterial(materialId)
     setActiveTab('orders')
   }
 
-  const handleOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)))
+  const handleCreateOrder = async (payload: {
+    customerName: string
+    contact: string
+    partName: string
+    fileName?: string
+    materialId: string
+    estimatedGrams: number
+    quantity: number
+  }) => {
+    const created = await api.createOrder(payload)
+    setOrders((prev) => [created, ...prev])
+    return created
   }
 
-  const handleBugStatus = (bugId: string, status: BugStatus) => {
-    setBugs((prev) => prev.map((b) => (b.id === bugId ? { ...b, status } : b)))
+  const handleOrderStatus = async (orderId: string, status: OrderStatus) => {
+    const updated = await api.updateOrderStatus(orderId, status)
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? updated : o)))
+  }
+
+  const handleCreateBug = async (payload: {
+    title: string
+    module: string
+    severity: BugSeverity
+    description: string
+    reporter: string
+  }) => {
+    const created = await api.createBug(payload)
+    setBugs((prev) => [created, ...prev])
+    return created
+  }
+
+  const handleBugStatus = async (bugId: string, status: BugStatus) => {
+    const updated = await api.updateBugStatus(bugId, status)
+    setBugs((prev) => prev.map((b) => (b.id === bugId ? updated : b)))
   }
 
   return (
@@ -51,7 +123,17 @@ export function App() {
             </div>
             <div>
               <span className="block text-sm font-bold text-slate-900">LayerCore 3D</span>
-              <span className="block text-[11px] text-slate-500">Автоматизація 3D-друку</span>
+              <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                Автоматизація 3D-друку
+                {apiOnline !== null && (
+                  <span
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${
+                      apiOnline ? 'bg-emerald-500' : 'bg-amber-500'
+                    }`}
+                    title={apiOnline ? 'API підключено' : 'Офлайн-режим'}
+                  />
+                )}
+              </span>
             </div>
           </button>
 
@@ -115,20 +197,31 @@ export function App() {
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
         {activeTab === 'home' && (
-          <DashboardView orders={orders} bugs={bugs} onNavigate={setActiveTab} />
+          <DashboardView
+            materialsCount={materials.length}
+            orders={orders}
+            bugs={bugs}
+            onNavigate={setActiveTab}
+          />
         )}
 
         {activeTab === 'materials' && (
-          <MaterialSelectorView onSelectForOrder={handleSelectMaterial} />
+          <MaterialSelectorView
+            materials={materials}
+            onSelectForOrder={handleSelectMaterial}
+          />
         )}
 
-        {activeTab === 'troubleshooting' && <TroubleshootingView />}
+        {activeTab === 'troubleshooting' && (
+          <TroubleshootingView cases={troubleshootCases} />
+        )}
 
         {activeTab === 'orders' && (
           <OrdersView
+            materials={materials}
             orders={orders}
             initialMaterialId={selectedMaterial}
-            onAddOrder={(order) => setOrders((prev) => [order, ...prev])}
+            onCreateOrder={handleCreateOrder}
             onChangeStatus={handleOrderStatus}
           />
         )}
@@ -136,7 +229,7 @@ export function App() {
         {activeTab === 'bugs' && (
           <BugTrackerView
             bugs={bugs}
-            onAddBug={(bug) => setBugs((prev) => [bug, ...prev])}
+            onCreateBug={handleCreateBug}
             onChangeStatus={handleBugStatus}
           />
         )}
@@ -148,8 +241,7 @@ export function App() {
 
       <AutomationAssistant
         onNavigate={setActiveTab}
-        onSubmitQuickBug={(bug) => setBugs((prev) => [bug, ...prev])}
-        bugsCount={bugs.length}
+        onBugCreated={(bug) => setBugs((prev) => [bug, ...prev])}
       />
     </div>
   )

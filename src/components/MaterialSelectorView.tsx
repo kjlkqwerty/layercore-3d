@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { MATERIALS } from '../data/printData'
-import type { MaterialUseCase } from '../types'
+import type { MaterialSpec, MaterialUseCase } from '../types'
 
 interface MaterialSelectorViewProps {
+  materials: MaterialSpec[]
   onSelectForOrder: (materialId: string) => void
 }
 
@@ -14,13 +14,16 @@ const USE_CASES: { id: 'all' | MaterialUseCase; label: string }[] = [
   { id: 'flexible', label: 'Гнучка деталь' },
 ]
 
-export function MaterialSelectorView({ onSelectForOrder }: MaterialSelectorViewProps) {
+export function MaterialSelectorView({
+  materials,
+  onSelectForOrder,
+}: MaterialSelectorViewProps) {
   const [filter, setFilter] = useState<'all' | MaterialUseCase>('all')
 
   const visibleMaterials = useMemo(() => {
-    if (filter === 'all') return MATERIALS
-    return MATERIALS.filter((m) => m.useCases.includes(filter))
-  }, [filter])
+    if (filter === 'all') return materials
+    return materials.filter((m) => m.useCases.includes(filter))
+  }, [filter, materials])
 
   return (
     <div className="space-y-5">

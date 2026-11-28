@@ -1,13 +1,21 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle2, PackagePlus, Upload } from 'lucide-react'
-import { MATERIALS } from '../data/printData'
-import type { OrderStatus, PrintOrder } from '../types'
+import type { MaterialSpec, OrderStatus, PrintOrder } from '../types'
 
 interface OrdersViewProps {
+  materials: MaterialSpec[]
   orders: PrintOrder[]
   initialMaterialId: string
-  onAddOrder: (order: PrintOrder) => void
-  onChangeStatus: (orderId: string, status: OrderStatus) => void
+  onCreateOrder: (payload: {
+    customerName: string
+    contact: string
+    partName: string
+    fileName?: string
+    materialId: string
+    estimatedGrams: number
+    quantity: number
+  }) => Promise<PrintOrder>
+  onChangeStatus: (orderId: string, status: OrderStatus) => Promise<void>
 }
 
 const STATUS_STYLE: Record<OrderStatus, string> = {
@@ -17,9 +25,10 @@ const STATUS_STYLE: Record<OrderStatus, string> = {
 }
 
 export function OrdersView({
+  materials,
   orders,
   initialMaterialId,
-  onAddOrder,
+  onCreateOrder,
   onChangeStatus,
 }: OrdersViewProps) {
   const [customerName, setCustomerName] = useState('')
@@ -29,44 +38,47 @@ export function OrdersView({
   const [materialId, setMaterialId] = useState(initialMaterialId || 'petg')
   const [estimatedGrams, setEstimatedGrams] = useState(35)
   const [quantity, setQuantity] = useState(1)
+  const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const selectedMaterial = useMemo(
-    () => MATERIALS.find((m) => m.id === materialId) ?? MATERIALS[0],
-    [materialId],
+    () => materials.find((m) => m.id === materialId) ?? materials[0],
+    [materialId, materials],
   )
 
   const totalPriceUah = useMemo(() => {
     const setupFee = 50
-    return Math.round(estimatedGrams * quantity * selectedMaterial.pricePerGramUah + setupFee)
+    const rate = selectedMaterial?.pricePerGramUah ?? 3.8
+    return Math.round(estimatedGrams * quantity * rate + setupFee)
   }, [estimatedGrams, quantity, selectedMaterial])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const newId = `ORD-${103 + orders.length}`
-    const now = new Date()
-    const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`
+    setSubmitting(true)
+    setError(null)
+    try {
+      const created = await onCreateOrder({
+        customerName: customerName.trim(),
+        contact: contact.trim(),
+        partName: partName.trim(),
+        fileName: fileName || 'model.stl',
+        materialId: selectedMaterial.id,
+        estimatedGrams,
+        quantity,
+      })
 
-    onAddOrder({
-      id: newId,
-      customerName: customerName.trim(),
-      contact: contact.trim(),
-      partName: partName.trim(),
-      fileName: fileName || 'model.stl',
-      materialId: selectedMaterial.id,
-      estimatedGrams,
-      quantity,
-      totalPriceUah,
-      status: 'Новий',
-      createdAt: dateStr,
-    })
-
-    setNotice(`Замовлення ${newId} успішно прийнято!`)
-    setCustomerName('')
-    setContact('')
-    setPartName('')
-    setFileName('')
-    setTimeout(() => setNotice(null), 4000)
+      setNotice(`Замовлення ${created.id} успішно збережено!`)
+      setCustomerName('')
+      setContact('')
+      setPartName('')
+      setFileName('')
+      setTimeout(() => setNotice(null), 4000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не вдалося створити замовлення.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -74,7 +86,7 @@ export function OrdersView({
       <div>
         <h2 className="text-xl font-bold text-slate-900">Прийом замовлень на 3D-друк деталей</h2>
         <p className="text-sm text-slate-600">
-          Прикріпіть 3D-файл, виберіть пластик і кількість — система розрахує орієнтовну вартість.
+          Прикріпіть 3D-файл, виберіть пластик і кількість — сервер розрахує вартість і збереже замовлення.
         </p>
       </div>
 
@@ -82,6 +94,12 @@ export function OrdersView({
         <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           {notice}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-medium text-rose-700">
+          {error}
         </div>
       )}
 
@@ -159,7 +177,7 @@ export function OrdersView({
                 onChange={(e) => setMaterialId(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs focus:border-orange-400 focus:outline-none"
               >
-                {MATERIALS.map((m) => (
+                {materials.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name} ({m.pricePerGramUah} ₴/г)
                   </option>
@@ -199,9 +217,10 @@ export function OrdersView({
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-orange-600 py-2.5 text-xs font-semibold text-white hover:bg-orange-500 cursor-pointer"
+            disabled={submitting}
+            className="w-full rounded-xl bg-orange-600 py-2.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-60 cursor-pointer"
           >
-            Відправити замовлення
+            {submitting ? 'Збереження...' : 'Відправити замовлення'}
           </button>
         </form>
 
@@ -210,7 +229,7 @@ export function OrdersView({
             Список замовлень ({orders.length})
           </h3>
           {orders.map((order) => {
-            const mat = MATERIALS.find((m) => m.id === order.materialId)
+            const mat = materials.find((m) => m.id === order.materialId)
             return (
               <div
                 key={order.id}
@@ -237,7 +256,7 @@ export function OrdersView({
                   </span>
                   <select
                     value={order.status}
-                    onChange={(e) => onChangeStatus(order.id, e.target.value as OrderStatus)}
+                    onChange={(e) => void onChangeStatus(order.id, e.target.value as OrderStatus)}
                     className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700"
                   >
                     <option value="Новий">Новий</option>

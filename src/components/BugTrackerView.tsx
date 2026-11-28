@@ -4,8 +4,14 @@ import type { BugReport, BugSeverity, BugStatus } from '../types'
 
 interface BugTrackerViewProps {
   bugs: BugReport[]
-  onAddBug: (bug: BugReport) => void
-  onChangeStatus: (bugId: string, status: BugStatus) => void
+  onCreateBug: (payload: {
+    title: string
+    module: string
+    severity: BugSeverity
+    description: string
+    reporter: string
+  }) => Promise<BugReport>
+  onChangeStatus: (bugId: string, status: BugStatus) => Promise<void>
 }
 
 const STATUS_STYLE: Record<BugStatus, string> = {
@@ -14,35 +20,38 @@ const STATUS_STYLE: Record<BugStatus, string> = {
   Вирішено: 'bg-emerald-50 text-emerald-700',
 }
 
-export function BugTrackerView({ bugs, onAddBug, onChangeStatus }: BugTrackerViewProps) {
+export function BugTrackerView({ bugs, onCreateBug, onChangeStatus }: BugTrackerViewProps) {
   const [title, setTitle] = useState('')
   const [module, setModule] = useState('Форма замовлень')
   const [severity, setSeverity] = useState<BugSeverity>('Середня')
   const [reporter, setReporter] = useState('')
   const [description, setDescription] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const newId = `BUG-0${bugs.length + 1}`
-    const now = new Date()
-    const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`
+    setSubmitting(true)
+    setError(null)
+    try {
+      const created = await onCreateBug({
+        title: title.trim(),
+        module,
+        severity,
+        description: description.trim(),
+        reporter: reporter.trim() || 'Користувач',
+      })
 
-    onAddBug({
-      id: newId,
-      title: title.trim(),
-      module,
-      severity,
-      status: 'Новий',
-      description: description.trim(),
-      reporter: reporter.trim() || 'Користувач',
-      createdAt: dateStr,
-    })
-
-    setNotice(`Повідомлення про помилку ${newId} збережено!`)
-    setTitle('')
-    setDescription('')
-    setTimeout(() => setNotice(null), 4000)
+      setNotice(`Повідомлення про помилку ${created.id} збережено!`)
+      setTitle('')
+      setDescription('')
+      setTimeout(() => setNotice(null), 4000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не вдалося зберегти помилку.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -50,7 +59,7 @@ export function BugTrackerView({ bugs, onAddBug, onChangeStatus }: BugTrackerVie
       <div>
         <h2 className="text-xl font-bold text-slate-900">Прийом помилок у програмному забезпеченні</h2>
         <p className="text-sm text-slate-600">
-          Повідомте про збій на сайті, у боті або слайсері — заявка одразу потрапить до списку.
+          Повідомте про збій на сайті, у боті або слайсері — заявка збережеться на сервері.
         </p>
       </div>
 
@@ -58,6 +67,12 @@ export function BugTrackerView({ bugs, onAddBug, onChangeStatus }: BugTrackerVie
         <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           {notice}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-medium text-rose-700">
+          {error}
         </div>
       )}
 
@@ -136,9 +151,10 @@ export function BugTrackerView({ bugs, onAddBug, onChangeStatus }: BugTrackerVie
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-semibold text-white hover:bg-rose-600 cursor-pointer"
+            disabled={submitting}
+            className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-60 cursor-pointer"
           >
-            Надіслати помилку
+            {submitting ? 'Надсилання...' : 'Надіслати помилку'}
           </button>
         </form>
 
@@ -168,7 +184,7 @@ export function BugTrackerView({ bugs, onAddBug, onChangeStatus }: BugTrackerVie
 
                 <select
                   value={bug.status}
-                  onChange={(e) => onChangeStatus(bug.id, e.target.value as BugStatus)}
+                  onChange={(e) => void onChangeStatus(bug.id, e.target.value as BugStatus)}
                   className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700"
                 >
                   <option value="Новий">Новий</option>
